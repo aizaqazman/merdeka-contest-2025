@@ -15,89 +15,29 @@ function upstreamBase() {
   return base;
 }
 
-async function tryFetch(url: string, init: RequestInit) {
-  const res = await fetch(url, init);
-  const text = await res.text().catch(() => "");
-  return {
-    ok: res.ok,
-    status: res.status,
-    url,
-    text,
-    ct: res.headers.get("content-type") ?? "",
-  };
-}
-
 async function getLeaderboard(): Promise<LeaderboardEntry[]> {
   const base = upstreamBase();
   const token = process.env.LEADERBOARD_API_TOKEN;
 
-  const commonHeaders: HeadersInit = {
-    Accept: "application/json",
-    "Content-Type": "application/json",
-    ...(token ? { Authorization: `Bearer ${token}` } : {}),
-  };
+  const contestId = 10;  //tukar sini jugak
+  const url = `${base}/leaderboard`;
 
-  const contestId = 10;
-  const probes = [
-    // A) POST /contests/{id}/leaderboard with body { segment }
-    {
-      label: "POST /contests/{id}/leaderboard (body={segment})",
-      url: `${base}/contests/${contestId}/leaderboard`,
-      init: {
-        method: "POST",
-        headers: commonHeaders,
-        body: JSON.stringify({ segment: { limit: 10, offset: 0 } }),
-      },
+  const res = await fetch(url, {
+    method: "POST",
+    headers: {
+      Accept: "application/json",
+      "Content-Type": "application/json",
+      ...(token ? { Authorization: `Bearer ${token}` } : {}),
     },
-    // B) POST /leaderboard with body { contestId, segment }
-    {
-      label: "POST /leaderboard (body={contestId,segment})",
-      url: `${base}/leaderboard`,
-      init: {
-        method: "POST",
-        headers: commonHeaders,
-        body: JSON.stringify({ contestId, segment: { limit: 10, offset: 0 } }),
-      },
-    },
-    // C) GET /contests/{id}/leaderboard?limit=&offset=  (some APIs do GET with query params)
-    {
-      label: "GET /contests/{id}/leaderboard?limit&offset",
-      url: `${base}/contests/${contestId}/leaderboard?limit=10&offset=0`,
-      init: {
-        method: "GET",
-        headers: {
-          Accept: "application/json",
-          ...(token ? { Authorization: `Bearer ${token}` } : {}),
-        },
-      },
-    },
-  ];
+    body: JSON.stringify({ contestId, segment: { limit: 10, offset: 0 } }),
+  });
 
-  const results = [];
-  for (const p of probes) {
-    const r = await tryFetch(p.url, p.init);
-    results.push({
-      label: p.label,
-      status: r.status,
-      url: r.url,
-      snippet: r.text.slice(0, 300),
-    });
-    if (r.ok) {
-      // parse JSON and return immediately
-      try {
-        return JSON.parse(r.text) as LeaderboardEntry[];
-      } catch {
-        throw new Error(
-          `Upstream returned OK but body was not JSON. Probe: ${p.label}, URL: ${p.url}`
-        );
-      }
-    }
+  if (!res.ok) {
+    const text = await res.text();
+    throw new Error(`Failed to fetch leaderboard: ${res.status} ${text}`);
   }
 
-  const details = results
-    .map((r) => `• ${r.label}\n  ${r.status} ${r.url}\n  ${r.snippet}`)
-    .join("\n\n");
-  throw new Error(`All probes failed.\n\n${details}`);
+  return res.json();
 }
 
 export default async function LeaderboardPage() {

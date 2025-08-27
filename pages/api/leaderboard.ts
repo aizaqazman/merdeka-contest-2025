@@ -6,7 +6,7 @@ const USE_BODY_STYLE = true;
 // allow your HTML origin(s)
 const ALLOWED_ORIGINS = (
   process.env.ALLOWED_ORIGINS ?? "http://127.0.0.1:5501,http://localhost:5501"
-).split(",");
+).split(","); // tukar sini jugak
 
 function setCors(req: NextApiRequest, res: NextApiResponse) {
   const origin = req.headers.origin || "";
@@ -53,7 +53,7 @@ export default async function handler(
         .json({ error: "Server misconfig: LEADERBOARD_API_URL not set" });
     }
 
-    const base = process.env.LEADERBOARD_API_URL.replace(/\/+$/, ""); // strip trailing slash
+    const base = process.env.LEADERBOARD_API_URL.replace(/\/+$/, "");
 
     const upstreamUrl = USE_BODY_STYLE
       ? `${base}/leaderboard` // POST body: { contestId, segment }
@@ -71,8 +71,6 @@ export default async function handler(
         ...(process.env.LEADERBOARD_API_TOKEN
           ? { Authorization: `Bearer ${process.env.LEADERBOARD_API_TOKEN}` }
           : {}),
-        // If your upstream uses a key header instead:
-        // ...(process.env.LEADERBOARD_API_TOKEN ? { "X-API-Key": process.env.LEADERBOARD_API_TOKEN } : {}),
       },
       body: upstreamBody,
     });
