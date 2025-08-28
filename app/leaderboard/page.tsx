@@ -19,7 +19,7 @@ async function getLeaderboard(): Promise<LeaderboardEntry[]> {
   const base = upstreamBase();
   const token = process.env.LEADERBOARD_API_TOKEN;
 
-  const contestId = 10;  //tukar sini jugak
+  const contestId = 16;  //tukar sini jugak
   const url = `${base}/leaderboard`;
 
   const res = await fetch(url, {

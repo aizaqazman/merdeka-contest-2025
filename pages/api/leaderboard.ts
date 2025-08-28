@@ -1,34 +1,57 @@
 // pages/api/leaderboard.ts
 import type { NextApiRequest, NextApiResponse } from "next";
 
-const USE_BODY_STYLE = true;
+const USE_BODY_STYLE = true; // true => POST /leaderboard with { contestId, segment }
 
-// allow your HTML origin(s)
-const ALLOWED_ORIGINS = (
-  process.env.ALLOWED_ORIGINS ?? "http://127.0.0.1:5501,http://localhost:5501"
-).split(","); // tukar sini jugak
+// === Load & validate origins from env (MUST be set in Heroku) ===
+const ALLOWED_ORIGINS = (process.env.ALLOWED_ORIGINS ?? "")
+  .split(",")
+  .map((s) => s.trim())
+  .filter(Boolean);
 
-function setCors(req: NextApiRequest, res: NextApiResponse) {
+if (ALLOWED_ORIGINS.length === 0) {
+  throw new Error(
+    "[leaderboard] ALLOWED_ORIGINS must be set in environment"
+  );
+}
+
+const UPSTREAM_BASE = (process.env.LEADERBOARD_API_URL ?? "").replace(/\/+$/, "");
+if (!UPSTREAM_BASE) {
+  throw new Error("[leaderboard] LEADERBOARD_API_URL must be set in environment");
+}
+
+function setCors(req: NextApiRequest, res: NextApiResponse): boolean {
   const origin = req.headers.origin || "";
-  const allowed = ALLOWED_ORIGINS.includes(origin)
-    ? origin
-    : ALLOWED_ORIGINS[0];
-  res.setHeader("Access-Control-Allow-Origin", allowed);
-  res.setHeader("Vary", "Origin"); // for caches
-  res.setHeader("Access-Control-Allow-Methods", "POST,OPTIONS");
-  res.setHeader("Access-Control-Allow-Headers", "Content-Type, Authorization");
+  if (ALLOWED_ORIGINS.includes(origin)) {
+    res.setHeader("Access-Control-Allow-Origin", origin);
+    res.setHeader("Vary", "Origin");
+    res.setHeader("Access-Control-Allow-Methods", "POST,OPTIONS");
+    res.setHeader(
+      "Access-Control-Allow-Headers",
+      "Content-Type, Authorization, X-Requested-With"
+    );
+    res.setHeader("Access-Control-Max-Age", "600");
+    return true;
+  }
+  res.status(403).json({ error: "Origin not allowed" });
+  return false;
 }
 
 export default async function handler(
   req: NextApiRequest,
   res: NextApiResponse
-) {
-  setCors(req, res);
-  if (req.method === "OPTIONS") return res.status(204).end(); // preflight
+): Promise<void> {
+  if (!setCors(req, res)) return;
+
+  if (req.method === "OPTIONS") {
+    res.status(204).end();
+    return;
+  }
 
   if (req.method !== "POST") {
     res.setHeader("Allow", "POST,OPTIONS");
-    return res.status(405).json({ error: "Method Not Allowed" });
+    res.status(405).json({ error: "Method Not Allowed" });
+    return;
   }
 
   try {
@@ -40,24 +63,19 @@ export default async function handler(
     if (
       !body.segment ||
       typeof body.segment.limit !== "number" ||
-      typeof body.segment.offset !== "number"
+      typeof body.segment.offset !== "number" ||
+      (USE_BODY_STYLE && typeof body.contestId !== "number")
     ) {
-      return res.status(400).json({
+      res.status(400).json({
         error:
           "Bad Request: expected { contestId?: number, segment:{limit:number, offset:number} }",
       });
+      return;
     }
-    if (!process.env.LEADERBOARD_API_URL) {
-      return res
-        .status(500)
-        .json({ error: "Server misconfig: LEADERBOARD_API_URL not set" });
-    }
-
-    const base = process.env.LEADERBOARD_API_URL.replace(/\/+$/, "");
 
     const upstreamUrl = USE_BODY_STYLE
-      ? `${base}/leaderboard` // POST body: { contestId, segment }
-      : `${base}/contests/${body.contestId}/leaderboard`; // POST body: { segment }
+      ? `${UPSTREAM_BASE}/leaderboard`
+      : `${UPSTREAM_BASE}/contests/${body.contestId}/leaderboard`;
 
     const upstreamBody = USE_BODY_STYLE
       ? JSON.stringify({ contestId: body.contestId, segment: body.segment })
@@ -76,16 +94,17 @@ export default async function handler(
     });
 
     const text = await upstream.text();
-    return res
+    res
       .status(upstream.status)
       .setHeader(
         "Content-Type",
         upstream.headers.get("Content-Type") ?? "application/json"
       )
       .send(text);
-  } catch (err: any) {
-    return res
-      .status(502)
-      .json({ error: "Proxy failed", message: err?.message ?? String(err) });
+  } catch (err: unknown) {
+    const message =
+      err instanceof Error ? err.message : typeof err === "string" ? err : JSON.stringify(err);
+    console.error("[leaderboard] proxy error:", message);
+    res.status(502).json({ error: "Proxy failed", message });
   }
 }
